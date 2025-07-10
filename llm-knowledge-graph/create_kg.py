@@ -9,29 +9,27 @@ from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_community.graphs.graph_document import Node, Relationship
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-DOCS_PATH = "llm-knowledge-graph/data/course/pdfs"
+# DOCS_PATH = "llm-knowledge-graph/data/course/pdfs"
+DOCS_PATH = "llm-knowledge-graph/datai/tafseer/pdfs"
 
-llm = ChatOpenAI(
-    openai_api_key=os.getenv('OPENAI_API_KEY'), 
-    model_name="gpt-3.5-turbo"
-)
+llm = ChatOpenAI(openai_api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-3.5-turbo")
 
 embedding_provider = OpenAIEmbeddings(
-    openai_api_key=os.getenv('OPENAI_API_KEY'),
-    model="text-embedding-ada-002"
-    )
+    openai_api_key=os.getenv("OPENAI_API_KEY"), model="text-embedding-ada-002"
+)
 
 graph = Neo4jGraph(
-    url=os.getenv('NEO4J_URI'),
-    username=os.getenv('NEO4J_USERNAME'),
-    password=os.getenv('NEO4J_PASSWORD')
+    url=os.getenv("NEO4J_URI"),
+    username=os.getenv("NEO4J_USERNAME"),
+    password=os.getenv("NEO4J_PASSWORD"),
 )
 
 doc_transformer = LLMGraphTransformer(
     llm=llm,
-    )
+)
 
 # Load and split the documents
 loader = DirectoryLoader(DOCS_PATH, glob="**/*.pdf", loader_cls=PyPDFLoader)
@@ -46,9 +44,8 @@ docs = loader.load()
 chunks = text_splitter.split_documents(docs)
 
 for chunk in chunks:
-
     filename = os.path.basename(chunk.metadata["source"])
-    chunk_id = f"{filename}.{chunk.metadata["page"]}"
+    chunk_id = f"{filename}.{chunk.metadata['page']}"
     print("Processing -", chunk_id)
 
     # Embed the chunk
@@ -59,18 +56,19 @@ for chunk in chunks:
         "filename": filename,
         "chunk_id": chunk_id,
         "text": chunk.page_content,
-        "embedding": chunk_embedding
+        "embedding": chunk_embedding,
     }
-    
-    graph.query("""
+
+    graph.query(
+        """
         MERGE (d:Document {id: $filename})
         MERGE (c:Chunk {id: $chunk_id})
         SET c.text = $text
         MERGE (d)<-[:PART_OF]-(c)
         WITH c
         CALL db.create.setNodeVectorProperty(c, 'textEmbedding', $embedding)
-        """, 
-        properties
+        """,
+        properties,
     )
 
     # Generate the entities and relationships from the chunk
@@ -78,20 +76,12 @@ for chunk in chunks:
 
     # Map the entities in the graph documents to the chunk node
     for graph_doc in graph_docs:
-        chunk_node = Node(
-            id=chunk_id,
-            type="Chunk"
-        )
+        chunk_node = Node(id=chunk_id, type="Chunk")
 
         for node in graph_doc.nodes:
-
             graph_doc.relationships.append(
-                Relationship(
-                    source=chunk_node,
-                    target=node, 
-                    type="HAS_ENTITY"
-                    )
-                )
+                Relationship(source=chunk_node, target=node, type="HAS_ENTITY")
+            )
 
     # add the graph documents to the graph
     graph.add_graph_documents(graph_docs)
